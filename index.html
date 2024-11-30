@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tic-Tac-Toe Multiplayer</title>
+    <link rel="manifest" href="manifest.json">
+    <style>
+        body {
+            background-color: black;
+            color: white;
+            font-family: 'Courier New', monospace;
+            text-align: center;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            height: 100vh;
+        }
+        h1 {
+            color: lime;
+        }
+        button, input {
+            margin: 10px;
+            padding: 10px;
+            font-size: 18px;
+        }
+        #game-board {
+            display: grid;
+            grid-template-columns: repeat(3, 100px);
+            gap: 10px;
+            justify-content: center;
+        }
+        .cell {
+            width: 100px;
+            height: 100px;
+            background-color: grey;
+            color: white;
+            font-size: 36px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+        }
+                #notification {
+            background-color: #444;
+            color: white;
+            padding: 10px;
+            margin-top: 10px;
+            border-radius: 5px;
+            max-width: 300px;
+            margin: 10px auto;
+            display: none; /* Hidden by default */
+        }
+        #game-options, #friends-list, #game-board, #friend-requests, #join-requests, #search-friend, #game-info, #exit-button {
+            display: none;
+        }
+        #friends-list button, #friend-requests button, #join-requests button {
+            display: block;
+            margin: 5px auto;
+        }
+    </style>
+</head>
+<body>
+    <h1>Tic-Tac-Toe Multiplayer</h1>
+    
+    <!-- Notification Area -->
+    <div id="notification"></div>
+    
+    <!-- Authentication Section -->
+    <div id="auth">
+        <input id="username" placeholder="Username">
+        <input id="password" type="password" placeholder="Password">
+        <button id="register-btn">Register</button>
+        <button id="login-btn">Login</button>
+    </div>
+
+    <!-- Game Options -->
+    <div id="game-options">
+        <button id="play-random">Play Random</button>
+        <button id="play-friends">Play with Friends</button>
+    </div>
+
+    <!-- Search Friend Section -->
+    <div id="search-friend">
+        <input id="search-username" placeholder="Search for a friend">
+        <button id="send-req-btn">Send Friend Request</button>
+    </div>
+
+    <!-- Friend Requests Section -->
+    <div id="friend-requests">
+        <h3>Friend Requests:</h3>
+    </div>
+
+    <!-- Join Requests Section -->
+    <div id="join-requests">
+        <h3>Join Requests:</h3>
+    </div>
+
+    <!-- Friends List Section -->
+    <div id="friends-list">
+        <h3>Your Friends:</h3>
+    </div>
+
+    <!-- Game Info -->
+    <div id="game-info">
+        <h2>Game Between: <span id="player1-name"></span> vs <span id="player2-name"></span></h2>
+        <p>You are playing as <span id="your-symbol"></span></p>
+        <p>It's <span id="current-turn"></span>'s turn</p>
+    </div>
+
+    <!-- Game Board -->
+    <div id="game-board">
+        <div class="cell" data-index="0"></div>
+        <div class="cell" data-index="1"></div>
+        <div class="cell" data-index="2"></div>
+        <div class="cell" data-index="3"></div>
+        <div class="cell" data-index="4"></div>
+        <div class="cell" data-index="5"></div>
+        <div class="cell" data-index="6"></div>
+        <div class="cell" data-index="7"></div>
+        <div class="cell" data-index="8"></div>
+    </div>
+    
+        <!-- Exit Button -->
+    <button id="exit-button">Exit Game</button>
+
+ <script>
+    const glitchURL = "https://agreeable-chlorinated-koala.glitch.me";
+    let currentUser = null;
+    let gameId, opponent, symbol, turn, ws;
+    
+    if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js')
+      .then(registration => {
+        console.log('Service Worker registered with scope:', registration.scope);
+      })
+      .catch(error => {
+        console.error('Service Worker registration failed:', error);
+      });
+  }
+    
+        // Utility function to show messages in the notification area
+        const showNotification = (message) => {
+            const notificationDiv = document.getElementById('notification');
+            notificationDiv.textContent = message;
+            notificationDiv.style.display = 'block';
+            setTimeout(() => notificationDiv.style.display = 'none', 3000); // Hide after 3 seconds
+        };
+        
+    // Register function
+    document.getElementById('register-btn').addEventListener('click', () => {
+        const username = document.getElementById('username').value;
+        const password = document.getElementById('password').value;
+        fetch(`${glitchURL}/register`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, password })
+        })
+        .then(res => res.text())
+        .then(data => {
+          showNotification(data);
+            if (data === 'Registration successful') {
+                currentUser = username;
+                initializeWebSocket();  // Initialize WebSocket after successful registration
+                showGameOptions();
+            }
+        });
+    });
+
+    // Login function
+    document.getElementById('login-btn').addEventListener('click', () => {
+        const username = document.getElementById('username').value;
+        const password = document.getElementById('password').value;
+        fetch(`${glitchURL}/login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, password })
+        })
+        .then(res => res.text())
+        .then(data => {
+            if (data === 'Login successful') {
+                currentUser = username;
+                initializeWebSocket();  // Initialize WebSocket after successful login
+                showGameOptions();
+            } else {
+                showNotification('Login failed');
+            }
+        });
+    });
+
+    // Show game options after login or registration
+    const showGameOptions = () => {
+        document.getElementById('auth').style.display = 'none';
+        document.getElementById('game-options').style.display = 'block';
+    };
+
+    // Initialize WebSocket connection
+    const initializeWebSocket = () => {
+        ws = new WebSocket(`wss://${new URL(glitchURL).host}`);
+        ws.onopen = () => ws.send(JSON.stringify({ type: 'register', username: currentUser }));
+    ws.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        if (data.type === 'friendRequest') {
+            showNotification(`New friend request from ${data.from}`);
+            fetchFriendRequests();
+        } else if (data.type === 'friendAccepted') {
+            showNotification(`${data.friend} accepted your friend request`);
+            fetchFriendsList();
+        } else if (data.type === 'joinRequest') {
+            showNotification(`Join request from ${data.from}`);
+            displayJoinRequest(data.from);
+        } else if (data.type === 'startGame') {
+                startGame(data.gameId, data.opponent, data.symbol, data.turn);
+            } else if (data.type === 'move') {
+                updateBoard(data.index, data.symbol, data.nextTurn);
+            } else if (data.type === 'gameOver') {
+                showNotification(`Player ${data.winner} wins!`);
+                resetBoard();
+            }
+        };
+    };
+
+    // Send Friend Request
+    document.getElementById('send-req-btn').addEventListener('click', () => {
+        const friendUsername = document.getElementById('search-username').value;
+        if (friendUsername) {
+            fetch(`${glitchURL}/add-friend`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username: currentUser, friend: friendUsername })
+            })
+            .then(res => res.text())
+            .then(data => {
+                showNotification(data);
+            });
+        }
+    });
+
+    // Play with Friends button event listener
+    document.getElementById('play-friends').addEventListener('click', () => {
+        fetchFriendsList();
+        document.getElementById('game-options').style.display = 'none';
+        document.getElementById('search-friend').style.display = 'block';
+        document.getElementById('friends-list').style.display = 'block';
+        document.getElementById('friend-requests').style.display = 'block';
+        document.getElementById('join-requests').style.display = 'block';
+    });
+
+    // Fetch friend requests
+    const fetchFriendRequests = () => {
+        fetch(`${glitchURL}/friends?username=${currentUser}`)
+        .then(res => res.json())
+        .then(data => {
+            const friendRequestsDiv = document.getElementById('friend-requests');
+            friendRequestsDiv.innerHTML = '<h3>Friend Requests:</h3>';
+            data.invites.forEach(invite => {
+                const btn = document.createElement('button');
+                btn.textContent = `Accept request from ${invite}`;
+                btn.addEventListener('click', () => acceptFriendRequest(invite));
+                friendRequestsDiv.appendChild(btn);
+            });
+            friendRequestsDiv.style.display = data.invites.length ? 'block' : 'none';
+        });
+    };
+
+    // Accept a friend request
+    const acceptFriendRequest = (friend) => {
+        fetch(`${glitchURL}/accept-friend`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: currentUser, friend })
+        })
+        .then(res => res.text())
+        .then(data => {
+            showNotification(data);
+            fetchFriendsList();
+
+            // Remove the accepted friend request from the UI
+            const friendRequestsDiv = document.getElementById('friend-requests');
+            Array.from(friendRequestsDiv.children).forEach(btn => {
+                if (btn.textContent.includes(friend)) {
+                    btn.remove();
+                }
+            });
+
+            // Hide friend requests section if empty
+            if (!friendRequestsDiv.querySelector('button')) {
+                friendRequestsDiv.style.display = 'none';
+            }
+        });
+    };
+
+    // Display join requests
+    const displayJoinRequest = (from) => {
+        const joinRequestsDiv = document.getElementById('join-requests');
+        const btn = document.createElement('button');
+        btn.textContent = `Accept game from ${from}`;
+        btn.addEventListener('click', () => acceptJoinRequest(from));
+        joinRequestsDiv.appendChild(btn);
+        joinRequestsDiv.style.display = 'block';
+    };
+
+    // Accept join request and start game
+    const acceptJoinRequest = (friend) => {
+        fetch(`${glitchURL}/accept-join`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ player1: friend, player2: currentUser })
+        })
+        .then(res => res.json())
+        .then(data => {
+            showNotification('Game accepted');
+            startGame(data.gameId, friend);
+
+            // Clear the join request after it is accepted
+            const joinRequestsDiv = document.getElementById('join-requests');
+            Array.from(joinRequestsDiv.children).forEach(btn => {
+                if (btn.textContent.includes(friend)) {
+                    btn.remove();
+                }
+            });
+
+            // Hide join requests section if empty
+            if (!joinRequestsDiv.querySelector('button')) {
+                joinRequestsDiv.style.display = 'none';
+            }
+        });
+    };
+
+    // Fetch and display the friends list
+    const fetchFriendsList = () => {
+        fetch(`${glitchURL}/friends?username=${currentUser}`)
+        .then(res => res.json())
+        .then(data => {
+            const friendsDiv = document.getElementById('friends-list');
+            friendsDiv.innerHTML = '<h3>Your Friends:</h3>';
+            data.friends.forEach(friend => {
+                const btn = document.createElement('button');
+                btn.textContent = `Invite ${friend}`;
+                btn.addEventListener('click', () => inviteFriendToGame(friend));
+                friendsDiv.appendChild(btn);
+            });
+            friendsDiv.style.display = 'block';
+        });
+    };
+
+    // Send game invite to a friend
+    const inviteFriendToGame = (friend) => {
+        fetch(`${glitchURL}/invite-friend-to-game`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ player1: currentUser, player2: friend })
+        })
+        .then(res => res.text())
+        .then(() => showNotification(`Sent game invite to ${friend}`));
+    };
+
+    // Function to start the game with assigned symbol
+        const startGame = (id, opp, sym, firstTurn) => {
+            gameId = id;
+            opponent = opp;
+            symbol = sym;
+            turn = firstTurn;
+            
+            // Hide all elements except game board and info
+            document.getElementById('auth').style.display = 'none';
+            document.getElementById('game-options').style.display = 'none';
+            document.getElementById('friends-list').style.display = 'none';
+            document.getElementById('friend-requests').style.display = 'none';
+            document.getElementById('join-requests').style.display = 'none';
+            document.getElementById('search-friend').style.display = 'none';
+
+            document.getElementById('game-info').style.display = 'block';
+            document.getElementById('game-board').style.display = 'grid';
+            document.getElementById('exit-button').style.display = 'block';
+            document.getElementById('player1-name').textContent = currentUser;
+            document.getElementById('player2-name').textContent = opponent;
+            document.getElementById('your-symbol').textContent = symbol;
+            document.getElementById('current-turn').textContent = turn === currentUser ? 'Your' : `${opponent}'s`;
+        };
+
+        document.getElementById('exit-button').addEventListener('click', () => {
+            resetGameView();
+        });
+
+        const resetGameView = () => {
+            document.getElementById('game-info').style.display = 'none';
+            document.getElementById('game-board').style.display = 'none';
+            document.getElementById('exit-button').style.display = 'none';
+            document.getElementById('game-options').style.display = 'block';
+        };
+
+        const updateBoard = (index, playerSymbol, nextTurn) => {
+            document.querySelector(`[data-index='${index}']`).textContent = playerSymbol;
+            turn = nextTurn;
+            document.getElementById('current-turn').textContent = turn === currentUser ? 'Your' : `${opponent}'s`;
+        };
+        
+       // Reset the game board
+        const resetBoard = () => {
+            setTimeout(() => {
+                document.querySelectorAll('.cell').forEach(cell => cell.textContent = '');
+                document.getElementById('current-turn').textContent = 'Game Over. Waiting for new game...';
+            }, 2000);
+        };
+        
+        // Make move
+        document.querySelectorAll('.cell').forEach(cell => {
+            cell.addEventListener('click', () => {
+                const index = cell.getAttribute('data-index');
+                if (turn === currentUser && !cell.textContent) {
+                    makeMove(index);
+                }
+            });
+        });
+
+        const makeMove = (index) => {
+            fetch(`${glitchURL}/move`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ gameId, player: currentUser, index })
+            })
+            .then(res => res.json())
+            .then(() => updateBoard(index, symbol, opponent));
+        };
+
+</script>
+</body>
+</html>

@@ -1,0 +1,21 @@
+{
+  "name": "Tic-Tac-Toe Multiplayer",
+  "short_name": "TicTacToe",
+  "description": "Multiplayer Tic-Tac-Toe Game",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#000000",
+  "theme_color": "#00FF00",
+  "icons": [
+    {
+      "src": "icon-192x192.png",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "icon-512x512.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ]
+}
